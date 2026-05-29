@@ -7,6 +7,7 @@ use super::super::{
         ex_point_overflow_bank::buff_get_ex_point_overflow, raspberry::BUFF_ACT_ID_RASPBERRY,
     },
     event_queue::{BattleEvent, EventContext, EventQueue, drain_to_fight_steps},
+    fight_step::ActEffectBuilder,
     manager::{
         buff_mgr::{BuffMgr, observe_explicit_buff_uid_for_target},
         entity_mgr::{EntityLocation, FightEntityDataMgr, get_entity_mut_by_location},
@@ -266,6 +267,24 @@ impl FightCalculateDataMgr {
 
         entity.shield_value = Some(shield - shield_absorbed);
 
+        if shield_absorbed > 0 {
+            buff_mgr.reduce_shield_value(target_id, shield_absorbed);
+            let remaining = shield - shield_absorbed;
+            if remaining == 0 {
+                let shield_buff_id = buff_mgr.active_buff
+                    .get(&target_id)
+                    .and_then(|bs| bs.iter().find(|b| b.buff_type.as_ref().map(|t| t.r#type) == Some(7)))
+                    .map(|b| b.buff_id);
+                self.pending_effects.push(ActEffectBuilder::shield_broken(target_id));
+                self.pending_effects.push(ActEffectBuilder::shield_del(target_id));
+                if let Some(bid) = shield_buff_id {
+                    self.pending_effects.push(ActEffectBuilder::buff_del(target_id, 0, bid, 0));
+                }
+            } else {
+                self.pending_effects.push(ActEffectBuilder::shield(target_id, remaining));
+            }
+        }
+
         let current_hp = entity.current_hp.unwrap_or(0);
         entity.current_hp = Some((current_hp - hp_damage).max(0));
 
@@ -297,7 +316,6 @@ impl FightCalculateDataMgr {
         // Drop-damage stack decay is driven by passive/effect skills in live flow
         // (e.g. wrapper-triggered consume behaviors), not by a generic damage hook.
         // Applying it here causes double-consume and diverges update-vs-delete order.
-        let _ = (buff_mgr, target_id);
 
         Ok(())
     }
