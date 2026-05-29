@@ -97,6 +97,70 @@ pub enum LifecycleEventKind {
     Ticking,
 }
 
+fn apply_exclude_rules(buffs: &mut Vec<Buff>, new_idx: usize) -> bool {
+    let (exclude_rules, bt_type, new_shield, new_duration) = {
+        let b = &buffs[new_idx];
+        (
+            b.exclude_rules.clone(),
+            b.buff_type.as_ref().map(|t| t.r#type).unwrap_or(0),
+            b.shield_value,
+            b.duration,
+        )
+    };
+    let mut remove_new = false;
+    let mut to_remove: Vec<usize> = Vec::new();
+    for rule in &exclude_rules {
+        match rule {
+            ExcludeRule::ByBuffId(ids) => {
+                for (i, b) in buffs.iter().enumerate() {
+                    if i != new_idx && ids.contains(&b.buff_id) {
+                        to_remove.push(i);
+                    }
+                }
+            }
+            ExcludeRule::ByCategory(ids) => {
+                for (i, b) in buffs.iter().enumerate() {
+                    if i == new_idx { continue; }
+                    let bt = b.buff_type.as_ref().map(|t| t.r#type).unwrap_or(0);
+                    if !ids.contains(&bt) { continue; }
+                    if bt_type == 7 && bt == 7 {
+                        if b.shield_value > new_shield
+                            || (b.shield_value == new_shield && b.duration >= new_duration)
+                        {
+                            remove_new = true;
+                        } else {
+                            to_remove.push(i);
+                        }
+                    } else {
+                        to_remove.push(i);
+                    }
+                }
+            }
+        }
+    }
+    to_remove.sort_unstable();
+    to_remove.dedup();
+    for i in to_remove.into_iter().rev() {
+        buffs.remove(i);
+    }
+    remove_new
+}
+
+fn apply_stacking(buffs: &mut Vec<Buff>, buff_id: i32) {
+    if utils::is_stacked_include_type(buff_id) { return; }
+    let new_idx = buffs.len() - 1;
+    if let Some(existing_idx) = buffs[..new_idx].iter().position(|b| b.buff_id == buff_id) {
+        let new_stacks = buffs[new_idx].stacks;
+        let (keep, drop) = if buffs[existing_idx].duration >= buffs[new_idx].duration {
+            (existing_idx, new_idx)
+        } else {
+            (new_idx, existing_idx)
+        };
+        buffs[keep].stacks = new_stacks;
+        buffs.remove(drop);
+    }
+}
+
 impl BuffMgr {
     fn merge_from_skill_id(existing: &mut BuffInstance, from_skill_id: i32) {
         if from_skill_id != 0 || existing.from_skill_id == 0 {
@@ -158,32 +222,21 @@ impl BuffMgr {
 
         let new_buff = Buff { buff_id, duration, stacks, actions, proto_buff, buff_type, layer: 0, refresh_policy, attr_bonus_refs: Vec::new(), include_type, include_max_stacks, exclude_rules, take_stage, take_act, shield_value: 0 };
         let buffs = self.active_buff.entry(target_uid).or_default();
-        //TODO: correct refresh logic
-        match refresh_policy {
-            RefreshPolicy::UpdateInPlace => {
-                if let Some(existing) = buffs.iter_mut().find(|b| b.buff_id == buff_id) {
-                    existing.stacks += 1;
-                } else {
-                    buffs.push(new_buff);
-                }
-            }
-            RefreshPolicy::ReplaceOnSelfRefresh => {
-                buffs.retain(|b| b.buff_id != buff_id);
-                buffs.push(new_buff);
-            }
-            RefreshPolicy::ReplaceOnExcludedOverlap => {
-                if let Some(bt) = new_buff.buff_type.as_ref() {
-                    let excluded: Vec<i32> = bt.exclude_types
-                        .trim_start_matches("2#")
-                        .split(['，', ','])
-                        .filter_map(|v| v.trim().parse().ok())
-                        .collect();
-                    buffs.retain(|b| !excluded.contains(&b.buff_type.as_ref().map(|t| t.id).unwrap_or(0)));
-                }
-                buffs.push(new_buff);
-            }
-        }
+        buffs.push(new_buff);
         vec![]
+    }
+
+    pub fn finalize_buff_add(&mut self, target_uid: i64, buff_id: i32) {
+        let Some(buffs) = self.active_buff.get_mut(&target_uid) else { return; };
+        let new_idx = match buffs.iter().rposition(|b| b.buff_id == buff_id) {
+            Some(i) => i,
+            None => return,
+        };
+        if apply_exclude_rules(buffs, new_idx) {
+            buffs.remove(new_idx);
+            return;
+        }
+        apply_stacking(buffs, buff_id);
     }
 
     pub fn set_shield_value(&mut self, target_uid: i64, buff_id: i32, value: i32) {

@@ -32,6 +32,7 @@ pub fn execute(fight: &Fight, managers: &mut Managers, entity_uid: i64, params: 
     } else {
         managers.buff_mgr.add_buff(entity_uid, target_buff_id);
         events.extend(hook_call::on_buff_add(managers, fight, entity_uid));
+        managers.buff_mgr.finalize_buff_add(entity_uid, target_buff_id);
     }
 
     events
