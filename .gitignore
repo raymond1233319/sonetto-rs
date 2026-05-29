@@ -39,3 +39,4 @@ CLAUDE.md
 /gameserver/src/state/battle/docs
 *.json
 AGENTS.md
+/lib/config/configs

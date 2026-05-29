@@ -961,6 +961,20 @@ impl ActEffectBuilder {
             .build()
     }
 
+    pub fn shield_change(target: i64, current: i32) -> ActEffect {
+        Self::new(BattleEffectType::ShieldChange as i32, target)
+            .effect_num(current)
+            .build()
+    }
+
+    pub fn shield_broken(target: i64) -> ActEffect {
+        Self::new(BattleEffectType::ShieldBroken as i32, target).build()
+    }
+
+    pub fn shield_del(target: i64) -> ActEffect {
+        Self::new(BattleEffectType::ShieldDel as i32, target).build()
+    }
+
     pub fn poison(target: i64) -> ActEffect {
         tracing::trace!(target: "act_effects", kind = "poison", target);
         Self::new(BattleEffectType::Poison as i32, target)
