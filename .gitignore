@@ -40,3 +40,4 @@ CLAUDE.md
 *.json
 AGENTS.md
 /lib/config/configs
+/sonetto-data/
